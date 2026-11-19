@@ -7,7 +7,7 @@
 An AI agent skill that groups your commits into real pieces of work, writes each ticket<br>
 the way a teammate would, and estimates its story points. You approve every ticket first.
 
-[![Version](https://img.shields.io/github/v/release/lordarcadius/jira-sync?label=version&color=0A66C2)](https://github.com/lordarcadius/jira-sync/releases)
+[![Version](https://img.shields.io/github/v/release/lordarcadius/jira-sync?label=version&color=0A66C2&sort=semver)](https://github.com/lordarcadius/jira-sync/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/lordarcadius/jira-sync/tests.yml?branch=main&label=tests)](https://github.com/lordarcadius/jira-sync/actions/workflows/tests.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2EA043)](LICENSE)

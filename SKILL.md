@@ -3,6 +3,7 @@ name: jira-sync
 description: Turn the user's recent GitHub commits into well-grouped Jira tickets with story points, after showing a preview and getting confirmation. Use when the user runs /jira-sync or $jira-sync, asks to create Jira tickets from their commits or recent work, or asks to update this skill.
 license: MIT
 metadata:
+  version: "1.0.0"
   author: Vipul Kumar Jha
   email: hey@vipuljha.com
   website: https://vipuljha.com

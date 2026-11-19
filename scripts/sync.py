@@ -196,8 +196,19 @@ def github_problems(config):
     return problems
 
 
+def skill_version(skill_md):
+    """metadata.version from the front matter of a SKILL.md text, or "unknown"."""
+    parts = skill_md.split("---", 2)
+    match = re.search(r"^\s+version:\s*[\"']?([^\"'\s]+)", parts[1] if len(parts) == 3 else "", re.M)
+    return match[1] if match else "unknown"
+
+
+def current_version():
+    return skill_version((ROOT / "SKILL.md").read_text(encoding="utf-8"))
+
+
 def update_notice():
-    """A line saying how many new changes the upstream branch has; empty when up to date or when it cannot tell."""
+    """A line about a newer version on the upstream branch; empty when up to date or when it cannot tell."""
     if shutil.which("git") is None or git("rev-parse", "--abbrev-ref", "@{u}").returncode != 0:
         return ""
     try:
@@ -206,7 +217,12 @@ def update_notice():
     except subprocess.TimeoutExpired:
         return ""
     behind = git("rev-list", "--count", "HEAD..@{u}").stdout.strip()
-    return f"Update available: {behind} new change(s). Run `sync.py update`." if behind not in ("", "0") else ""
+    if behind in ("", "0"):
+        return ""
+    current, latest = current_version(), skill_version(git("show", "@{u}:SKILL.md").stdout)
+    if latest != current:
+        return f"Update available: version {latest} (you have {current}). Run `sync.py update`."
+    return f"Update available: {behind} new change(s) since version {current}. Run `sync.py update`."
 
 
 def cmd_check(_args):
@@ -217,7 +233,7 @@ def cmd_check(_args):
     problems = github_problems(load_json(CONFIG_PATH)) + config_issues
     if problems:
         sys.exit("\n".join(problems))
-    print(f"OK: {CONFIG_PATH}")
+    print(f"OK: jira-sync {current_version()}, {CONFIG_PATH}")
 
 
 def cmd_update(_args):
@@ -226,12 +242,18 @@ def cmd_update(_args):
     top = git("rev-parse", "--show-toplevel")
     if top.returncode != 0 or Path(top.stdout.strip()).resolve() != ROOT:
         sys.exit(f"{ROOT} was not installed with `git clone`, so it cannot update itself: reinstall it as the README shows")
-    before = git("rev-parse", "HEAD").stdout.strip()
+    before, old_version = git("rev-parse", "HEAD").stdout.strip(), current_version()
     pulled = git("pull", "--ff-only", "--quiet", timeout=120)
     if pulled.returncode != 0:
         sys.exit(f"Update failed: {pulled.stderr.strip()}\nUpdate by hand instead: cd {ROOT} && git pull")
     changes = git("log", "--format=- %s", f"{before}..HEAD").stdout.strip()
-    print(f"Updated. What changed:\n{changes}" if changes else "Already up to date")
+    new_version = current_version()
+    if not changes:
+        print(f"Already up to date (version {new_version})")
+    elif new_version != old_version:
+        print(f"Updated from version {old_version} to {new_version}. What changed:\n{changes}")
+    else:
+        print(f"Updated (still version {new_version}). What changed:\n{changes}")
 
 
 

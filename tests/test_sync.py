@@ -110,6 +110,18 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class VersionTest(unittest.TestCase):
+    def test_reads_the_front_matter_version_only(self):
+        text = '---\nname: x\nmetadata:\n  version: "1.2.3"\n---\n# Body\n  version: 9\n'
+        self.assertEqual(sync.skill_version(text), "1.2.3")
+
+    def test_unknown_without_a_version(self):
+        self.assertEqual(sync.skill_version("---\nname: x\n---\nbody"), "unknown")
+
+    def test_this_skill_has_a_semantic_version(self):
+        self.assertRegex(sync.current_version(), r"^\d+\.\d+\.\d+$")
+
+
 class SecretTest(unittest.TestCase):
     # Fake secrets are assembled at runtime, so no secret-shaped text is stored in the repository.
     def file(self, name, added_line, status="added"):

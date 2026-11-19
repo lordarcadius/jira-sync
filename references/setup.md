@@ -40,8 +40,8 @@ Settings with defaults, which the user may want to change. List them in one line
 
 Use this section when the user asks to update the skill, or agrees to an update that `check` reported.
 
-1. Run `sync.py update`. It pulls the latest version with git and lists what changed. It does not touch `config.json` or the history in `state.json`.
-2. Tell the user what changed. If the update failed, show its message.
+1. Run `sync.py update`. It pulls the latest version with git, and prints the old and new version numbers and what changed. It does not touch `config.json` or the history in `state.json`.
+2. Tell the user the new version and what changed. If the update failed, show its message.
 3. Read SKILL.md again, because the steps may have changed.
 4. Run `check` again. It adds defaults for new settings, and lists new settings that need a value as `missing:` lines.
 

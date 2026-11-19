@@ -7,6 +7,7 @@
 An AI agent skill that groups your commits into real pieces of work, writes each ticket<br>
 the way a teammate would, and estimates its story points. You approve every ticket first.
 
+[![Version](https://img.shields.io/github/v/release/lordarcadius/jira-sync?label=version&color=0A66C2)](https://github.com/lordarcadius/jira-sync/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/lordarcadius/jira-sync/tests.yml?branch=main&label=tests)](https://github.com/lordarcadius/jira-sync/actions/workflows/tests.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2EA043)](LICENSE)
@@ -150,7 +151,7 @@ Every estimate comes with a one-line reason, so you can adjust it before anythin
 
 ## Staying up to date
 
-Each time it runs, Jira Sync checks for a new version and tells you when one is out. Say **"update jira-sync"** and it updates itself. Your settings and history are kept.
+Each time it runs, Jira Sync checks for a new version and tells you when one is out. Say **"update jira-sync"** and it updates itself, showing the old and new version numbers. Your settings and history are kept. The [changelog](CHANGELOG.md) lists what changed in each version.
 
 To update by hand:
 
@@ -198,6 +199,7 @@ Your settings live in `config.json` in the `jira-sync` folder. The first run cre
 | `scripts/sync.py` | The helper that reads commits from GitHub and remembers which ones already have tickets |
 | `install.py` | Connects Jira Sync to your AI agents |
 | `config.example.json` | The template for your settings |
+| `CHANGELOG.md` | What changed in each version |
 | `tests/` | Automated tests, run on Linux, macOS and Windows for every change |
 
 ## License

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""GitHub side of /jira-sync: list your unticketed commits and remember which ones became tickets.
+"""GitHub side of jira-sync: list your unticketed commits and remember which ones became tickets.
 
-  check                                    report missing config values and GitHub CLI problems
-  update                                   pull the latest version of this skill with git
-  fetch [TARGET] [--since 7d|YYYY-MM-DD]   TARGET: org name | personal | owner/repo
-  record TICKET_KEY|skipped CHANGE_ID...   mark changes from the last fetch as handled
-  finish                                   save the last fetch time as the target's lastSync
+  check                                        report problems with Python, the GitHub CLI and config.json
+  update                                       pull the latest version of this skill with git
+  fetch [TARGET] [--since 7d|YYYY-MM-DD]       start a run; TARGET: org name | personal | owner/repo
+  diff --fetch ID CHANGE_ID                    show a change's diff, cut to a readable size
+  record --fetch ID KEY|skipped CHANGE_ID...   mark changes of that fetch as handled
+  finish --fetch ID                            save the sync time and end the run
+  unlock                                       end a run that was cancelled or abandoned
 """
 import sys
 
@@ -14,6 +16,7 @@ if sys.version_info < (3, 9):
     sys.exit(f"Python 3.9 or newer is needed (found {sys.version.split()[0]}): install it, then run again")
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -21,19 +24,41 @@ import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
+from time import sleep
 from urllib.parse import quote
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config.json"
 EXAMPLE_CONFIG_PATH = ROOT / "config.example.json"
 STATE_PATH = ROOT / "state.json"
-FETCH_PATH = ROOT / ".cache" / "fetch.json"
+CACHE_DIR = ROOT / ".cache"
+RUN_LOCK_PATH = CACHE_DIR / "run.lock"
+STATE_LOCK_PATH = CACHE_DIR / "state.lock"
+RUN_LOCK_STALE_AFTER = timedelta(hours=12)
+FETCH_KEPT_FOR = timedelta(days=7)
 MAX_FILES_LISTED = 15
 MAX_MESSAGE_CHARS = 800
+MAX_DIFF_CHARS = 6000
 HUNK_HEADER = re.compile(r"^@@[^@]*@@", re.M)
+
+SECRET_FILE = re.compile(
+    r"(^|/)(\.env(\.(?!example|sample|template)[\w.]+)?|id_(rsa|dsa|ecdsa|ed25519)|[^/]+\.(pem|key|p12|pfx|jks|keystore)"
+    r"|[^/]*(secret|credential)s?\.(json|ya?ml|env|txt|properties|xml|ini|toml)|keys?/[^/]+\.(json|ya?ml|txt|properties))$",
+    re.I,
+)
+SECRET_TEXT = [
+    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("GitHub token", re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})")),
+    ("AWS access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("Slack token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}")),
+    ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("password or secret value", re.compile(
+        r"(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key)[\"']?\s*[:=]\s*[\"'](?![$<{])[^\"'\s]{8,}[\"']")),
+]
 
 BRANCHES_QUERY = """
 query($owner: String!, $name: String!, $after: String) {
@@ -47,8 +72,12 @@ query($owner: String!, $name: String!, $after: String) {
 """
 
 
+def run(command, **kwargs):
+    return subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", **kwargs)
+
+
 def gh(*args):
-    result = subprocess.run(["gh", "api", *args], capture_output=True, text=True)
+    result = run(["gh", "api", *args])
     if result.returncode != 0:
         raise RuntimeError(f"gh api {args[0]}: {result.stderr.strip()}")
     return json.loads(result.stdout)
@@ -56,6 +85,11 @@ def gh(*args):
 
 def gh_all(path):
     return [item for page in gh(path, "--paginate", "--slurp") for item in page]
+
+
+def git(*args, timeout=60):
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    return run(["git", "-C", str(ROOT), *args], timeout=timeout, env=env)
 
 
 def parse_time(value):
@@ -66,41 +100,74 @@ def iso_utc(moment):
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def local_time(value):
+    return parse_time(value).astimezone().strftime("%Y-%m-%d %H:%M")
+
+
 def load_json(path, default=None):
     if not path.exists():
         if default is None:
             sys.exit(f"Missing {path}")
         return default
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def save_json(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.replace(temp, path)
 
 
-def missing_keys(config, example, prefix=""):
-    """Dotted keys of the example that are absent or empty ("" or []) in config. null means deliberately unused."""
-    missing = []
+
+def sync_config(config, example, prefix=""):
+    """Copy absent keys from the example into config; return (added, missing) dotted keys.
+
+    - missing: the value is still a placeholder ("" or []), so the user has to provide it
+    - null means "deliberately not used" and counts as set
+    """
+    added, missing = [], []
     for key, sample in example.items():
         path = f"{prefix}{key}"
-        if key not in config or config[key] in ("", []):
+        if key not in config:
+            config[key] = copy.deepcopy(sample)
+            if sample not in ("", []):
+                added.append(path)
+        value = config[key]
+        if isinstance(sample, dict) and isinstance(value, dict):
+            sub_added, sub_missing = sync_config(value, sample, f"{path}.")
+            added += sub_added
+            missing += sub_missing
+        elif value in ("", []):
             missing.append(path)
-        elif isinstance(sample, dict):
-            missing += missing_keys(config[key] or {}, sample, f"{path}.")
-    return missing
+    return added, missing
 
 
 def config_problems():
-    if not CONFIG_PATH.exists():
-        return [f"{CONFIG_PATH.name} does not exist"]
-    return [f"missing: {key}" for key in missing_keys(load_json(CONFIG_PATH), load_json(EXAMPLE_CONFIG_PATH))]
+    """Create or complete config.json from the example's defaults; return what the user still has to provide."""
+    created = not CONFIG_PATH.exists()
+    config = {} if created else load_json(CONFIG_PATH)
+    added, missing = sync_config(config, load_json(EXAMPLE_CONFIG_PATH))
+    if created or added:
+        save_json(CONFIG_PATH, config)
+    if created:
+        print(f"Created {CONFIG_PATH.name} from {EXAMPLE_CONFIG_PATH.name}")
+    for key in added if not created else []:
+        print(f"Added default: {key}")
+    problems = [f"missing: {key}" for key in missing]
+    zone = (config.get("workHours") or {}).get("timezone")
+    if zone:
+        try:
+            ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            problems.append(f"Time zone `{zone}` is unknown: fix workHours.timezone, or on Windows run `py -m pip install tzdata`")
+    return problems
 
 
 def load_config():
     problems = config_problems()
     if problems:
-        sys.exit(f"{CONFIG_PATH} is incomplete; run setup (SKILL.md step 0):\n" + "\n".join(problems))
+        sys.exit("config.json is incomplete; run `sync.py check` and complete the setup:\n" + "\n".join(problems))
     return load_json(CONFIG_PATH)
 
 
@@ -108,10 +175,10 @@ def github_problems(config):
     """GitHub CLI problems, each with the fix the user should apply."""
     if shutil.which("gh") is None:
         return ["GitHub CLI `gh` is not installed: install it from https://cli.github.com, then run `gh auth login`"]
-    if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode != 0:
+    if run(["gh", "auth", "status"]).returncode != 0:
         return ["GitHub CLI is not logged in: run `gh auth login`"]
     problems = []
-    headers = subprocess.run(["gh", "api", "--include", "user"], capture_output=True, text=True).stdout
+    headers = run(["gh", "api", "--include", "user"]).stdout
     scopes = re.search(r"^x-oauth-scopes:(.*)$", headers, re.I | re.M)
     # Only classic tokens send this header; fine-grained tokens are not checked here.
     if scopes:
@@ -129,11 +196,6 @@ def github_problems(config):
     return problems
 
 
-def git(*args, timeout=60):
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, timeout=timeout, env=env)
-
-
 def update_notice():
     """A line saying how many new changes the upstream branch has; empty when up to date or when it cannot tell."""
     if shutil.which("git") is None or git("rev-parse", "--abbrev-ref", "@{u}").returncode != 0:
@@ -145,6 +207,17 @@ def update_notice():
         return ""
     behind = git("rev-list", "--count", "HEAD..@{u}").stdout.strip()
     return f"Update available: {behind} new change(s). Run `sync.py update`." if behind not in ("", "0") else ""
+
+
+def cmd_check(_args):
+    notice = update_notice()
+    if notice:
+        print(notice)
+    config_issues = config_problems()
+    problems = github_problems(load_json(CONFIG_PATH)) + config_issues
+    if problems:
+        sys.exit("\n".join(problems))
+    print(f"OK: {CONFIG_PATH}")
 
 
 def cmd_update(_args):
@@ -161,15 +234,36 @@ def cmd_update(_args):
     print(f"Updated. What changed:\n{changes}" if changes else "Already up to date")
 
 
-def cmd_check(_args):
-    notice = update_notice()
-    if notice:
-        print(notice)
-    config = load_json(CONFIG_PATH) if CONFIG_PATH.exists() else None
-    problems = github_problems(config) + config_problems()
-    if problems:
-        sys.exit("\n".join(problems))
-    print(f"OK: {CONFIG_PATH}")
+
+def read_run_lock():
+    return load_json(RUN_LOCK_PATH) if RUN_LOCK_PATH.exists() else None
+
+
+def acquire_run_lock(fetch_id, now):
+    """Start a run, refusing while another run that is not stale is still open."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    lock = read_run_lock()
+    if lock:
+        if now - parse_time(lock["started"]) < RUN_LOCK_STALE_AFTER:
+            sys.exit(f"Another jira-sync run (fetch {lock['id']}, started {local_time(lock['started'])}) is still open. "
+                     "Finish or cancel it first. If it was abandoned, run `sync.py unlock`, then fetch again.")
+        print(f"Ending an abandoned run from {local_time(lock['started'])}")
+        RUN_LOCK_PATH.unlink()
+    try:
+        handle = os.open(RUN_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        sys.exit("Another jira-sync run started at the same moment; let it finish first")
+    with os.fdopen(handle, "w", encoding="utf-8") as file:
+        json.dump({"id": fetch_id, "started": iso_utc(now)}, file)
+
+
+def release_run_lock(fetch_id=None):
+    """Remove the run lock if it belongs to fetch_id (any run when None); return the removed lock."""
+    lock = read_run_lock()
+    if lock and fetch_id in (None, lock["id"]):
+        RUN_LOCK_PATH.unlink()
+        return lock
+    return None
 
 
 def load_state():
@@ -177,6 +271,46 @@ def load_state():
     for key in ("lastSync", "commits", "patches"):
         state.setdefault(key, {})
     return state
+
+
+@contextmanager
+def locked_state():
+    """Yield state.json's content and save it on exit, holding a lock so parallel commands don't lose writes."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    deadline = datetime.now(timezone.utc) + timedelta(seconds=30)
+    while True:
+        try:
+            os.close(os.open(STATE_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            if datetime.now(timezone.utc) > deadline:
+                sys.exit(f"state.json is locked by another command. If none is running, delete {STATE_LOCK_PATH}")
+            sleep(0.2)
+    try:
+        state = load_state()
+        yield state
+        save_json(STATE_PATH, state)
+    finally:
+        STATE_LOCK_PATH.unlink()
+
+
+def fetch_path(fetch_id):
+    return CACHE_DIR / f"fetch-{fetch_id}.json"
+
+
+def load_fetch(fetch_id):
+    path = fetch_path(fetch_id)
+    if not path.exists():
+        sys.exit(f"No fetch with id {fetch_id}: use the id printed by `sync.py fetch`")
+    return load_json(path)
+
+
+def find_change(fetch, change_id):
+    for change in fetch["changes"]:
+        if change["id"] == change_id:
+            return change
+    sys.exit(f"Unknown change id: {change_id}")
+
 
 
 def resolve_since(arg, target, config, state):
@@ -257,6 +391,20 @@ def patch_hash(files):
     return digest.hexdigest()[:16]
 
 
+def secret_findings(files):
+    """'path: kind' for added or changed files that look like they hold secrets. Never includes the values."""
+    findings = []
+    for f in files:
+        if f.get("status") == "removed":
+            continue
+        added = "\n".join(line[1:] for line in (f.get("patch") or "").splitlines()
+                          if line.startswith("+") and not line.startswith("+++"))
+        kinds = [kind for kind, pattern in SECRET_TEXT if pattern.search(added)]
+        if kinds or SECRET_FILE.search(f["filename"]):
+            findings.append(f"{f['filename']}: {', '.join(kinds) or 'file name suggests secrets'}")
+    return findings
+
+
 def jira_reference(key_re, message, branches, pulls):
     places = [(message, "commit message")]
     places += [(f"{p['title']} {p['head']['ref']}", f"PR #{p['number']}") for p in pulls]
@@ -290,13 +438,16 @@ def workday_hours(work):
     return (close_at.hour * 60 + close_at.minute - open_at.hour * 60 - open_at.minute) / 60
 
 
-def cmd_fetch(args):
-    config = load_config()
-    state = load_state()
+def _safe(fn, *args):
+    try:
+        return fn(*args)
+    except RuntimeError as error:
+        return error
+
+
+def collect_changes(target, since, until, config, state):
+    """Scan GitHub and build the fetch result: your unticketed changes, oldest first."""
     gh_cfg = config["github"]
-    target = args.target or gh_cfg["defaultOrg"]
-    until = datetime.now(timezone.utc)
-    since = resolve_since(args.since, target, config, state)
     logins = set(gh_cfg["authorLogins"])
     emails = {e.lower() for e in gh_cfg["authorEmails"] or []}
     key_re = re.compile(config["jira"]["issueKeyPattern"])
@@ -342,7 +493,8 @@ def cmd_fetch(args):
         if reference:
             skipped.append({"repo": entry["repo"], "sha": sha[:7], "headline": headline, "reason": reference})
             continue
-        digest = patch_hash(commit.get("files", []))
+        files = commit.get("files", [])
+        digest = patch_hash(files)
         if digest in state["patches"]:
             skipped.append({"repo": entry["repo"], "sha": sha[:7], "headline": headline,
                             "reason": f"same change already handled as {state['patches'][digest]}"})
@@ -358,11 +510,9 @@ def cmd_fetch(args):
             "pr": next(({"number": p["number"], "title": p["title"], "branch": p["head"]["ref"]} for p in pulls), None),
             "additions": commit["stats"]["additions"],
             "deletions": commit["stats"]["deletions"],
-            "files": [
-                f"{f['filename']} +{f['additions']} -{f['deletions']}"
-                for f in commit.get("files", [])[:MAX_FILES_LISTED]
-            ],
-            "more_files": max(0, len(commit.get("files", [])) - MAX_FILES_LISTED),
+            "files": [f"{f['filename']} +{f['additions']} -{f['deletions']}" for f in files[:MAX_FILES_LISTED]],
+            "more_files": max(0, len(files) - MAX_FILES_LISTED),
+            "secrets": secret_findings(files),
         })
         change["commits"].append(sha)
         change["branches"].update(branches)
@@ -378,62 +528,96 @@ def cmd_fetch(args):
         change["work_hours_since_prev"] = round(gap, 2) if gap is not None else None
         change["authored"] = change["authored"].astimezone(tz).strftime("%Y-%m-%d %a %H:%M")
 
-    already = sum(1 for sha in mine if sha in state["commits"])
-    result = {
+    return {
         "target": target,
         "since": iso_utc(since),
         "until": iso_utc(until),
         "repos_scanned": len(repos),
-        "already_handled": already,
+        "already_handled": sum(1 for sha in mine if sha in state["commits"]),
+        "work_hours_total": round(sum(c["work_hours_since_prev"] or 0 for c in ordered), 1),
         "errors": errors,
         "skipped": skipped,
         "changes": [{"id": c.pop("id"), **c} for c in ordered],
     }
-    save_json(FETCH_PATH, result)
-    commit_count = sum(len(c["commits"]) for c in result["changes"])
-    print(f"{target}: {len(ordered)} changes ({commit_count} commits) from {result['since']} to {result['until']}; "
-          f"{len(skipped)} skipped, {already} already handled, {len(errors)} errors. Details: {FETCH_PATH}")
-    for change in result["changes"]:
+
+
+
+def cmd_fetch(args):
+    config = load_config()
+    state = load_state()
+    target = args.target or config["github"]["defaultOrg"]
+    until = datetime.now(timezone.utc)
+    since = resolve_since(args.since, target, config, state)
+    fetch_id = until.strftime("%Y%m%d-%H%M%S")
+    acquire_run_lock(fetch_id, until)
+    try:
+        result = {"id": fetch_id, **collect_changes(target, since, until, config, state)}
+        save_json(fetch_path(fetch_id), result)
+    except BaseException:
+        release_run_lock(fetch_id)
+        raise
+    for old in CACHE_DIR.glob("fetch-*.json"):
+        if until - datetime.fromtimestamp(old.stat().st_mtime, timezone.utc) > FETCH_KEPT_FOR:
+            old.unlink()
+
+    changes = result["changes"]
+    commit_count = sum(len(c["commits"]) for c in changes)
+    hours, per_point = result["work_hours_total"], config["storyPoints"]["hoursPerPoint"]
+    print(f"Fetch id: {fetch_id} (pass it as --fetch to diff, record and finish)")
+    print(f"{target}: {len(changes)} changes ({commit_count} commits) from {result['since']} to {result['until']}; "
+          f"{len(result['skipped'])} skipped, {result['already_handled']} already handled, {len(result['errors'])} errors. "
+          f"Details: {fetch_path(fetch_id)}")
+    print(f"Working hours before these changes: ~{hours} h (about {round(hours / per_point, 2)} SP at {per_point} h per SP)")
+    for change in changes:
         gap = change["work_hours_since_prev"]
         print(f"{change['id']}\t{change['repo'].split('/')[1]}\t{change['authored']}\t"
               f"+{change['additions']}/-{change['deletions']}\t[{','.join(change['branches'])}]\t"
               f"{'-' if gap is None else f'{gap}h'}\t{change['message'].splitlines()[0] if change['message'] else ''}")
+    for change in changes:
+        for finding in change["secrets"]:
+            print(f"WARNING {change['id']}: possible secret in {finding}")
 
 
-def _safe(fn, *args):
-    try:
-        return fn(*args)
-    except RuntimeError as error:
-        return error
+def cmd_diff(args):
+    change = find_change(load_fetch(args.fetch), args.change_id)
+    path = f"repos/{change['repo']}/commits/{change['commits'][0]}"
+    result = run(["gh", "api", path, "-H", "Accept: application/vnd.github.diff"])
+    if result.returncode != 0:
+        sys.exit(f"gh api {path}: {result.stderr.strip()}")
+    text = result.stdout
+    print(text[:MAX_DIFF_CHARS] + (f"\n... cut at {MAX_DIFF_CHARS} characters" if len(text) > MAX_DIFF_CHARS else ""))
 
 
 def cmd_record(args):
-    fetch = load_json(FETCH_PATH)
-    by_id = {c["id"]: c for c in fetch["changes"]}
-    unknown = [cid for cid in args.change_ids if cid not in by_id]
-    if unknown:
-        sys.exit(f"Unknown change ids: {', '.join(unknown)}")
-    state = load_state()
-    for cid in args.change_ids:
-        change = by_id[cid]
-        for sha in change["commits"]:
-            state["commits"][sha] = args.ticket
-        state["patches"][change["patch_hash"]] = args.ticket
-    save_json(STATE_PATH, state)
+    fetch = load_fetch(args.fetch)
+    changes = [find_change(fetch, cid) for cid in args.change_ids]
+    with locked_state() as state:
+        for change in changes:
+            for sha in change["commits"]:
+                state["commits"][sha] = args.ticket
+            state["patches"][change["patch_hash"]] = args.ticket
     print(f"Recorded {', '.join(args.change_ids)} as {args.ticket}")
 
 
-def cmd_finish(_args):
-    fetch = load_json(FETCH_PATH)
-    state = load_state()
-    previous = state["lastSync"].get(fetch["target"])
-    if previous is None or parse_time(previous) < parse_time(fetch["until"]):
-        state["lastSync"][fetch["target"]] = fetch["until"]
-    save_json(STATE_PATH, state)
-    print(f"lastSync[{fetch['target']}] = {state['lastSync'][fetch['target']]}")
+def cmd_finish(args):
+    fetch = load_fetch(args.fetch)
+    with locked_state() as state:
+        previous = state["lastSync"].get(fetch["target"])
+        if previous is None or parse_time(previous) < parse_time(fetch["until"]):
+            state["lastSync"][fetch["target"]] = fetch["until"]
+        last = state["lastSync"][fetch["target"]]
+    release_run_lock(args.fetch)
+    print(f"lastSync[{fetch['target']}] = {last}. Run finished.")
+
+
+def cmd_unlock(_args):
+    lock = release_run_lock()
+    print(f"Ended the open run (fetch {lock['id']}, started {local_time(lock['started'])})" if lock else "No run was open")
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check").set_defaults(run=cmd_check)
@@ -442,11 +626,19 @@ def main():
     fetch.add_argument("target", nargs="?")
     fetch.add_argument("--since")
     fetch.set_defaults(run=cmd_fetch)
+    diff = sub.add_parser("diff")
+    diff.add_argument("--fetch", required=True)
+    diff.add_argument("change_id")
+    diff.set_defaults(run=cmd_diff)
     record = sub.add_parser("record")
+    record.add_argument("--fetch", required=True)
     record.add_argument("ticket")
     record.add_argument("change_ids", nargs="+")
     record.set_defaults(run=cmd_record)
-    sub.add_parser("finish").set_defaults(run=cmd_finish)
+    finish = sub.add_parser("finish")
+    finish.add_argument("--fetch", required=True)
+    finish.set_defaults(run=cmd_finish)
+    sub.add_parser("unlock").set_defaults(run=cmd_unlock)
     args = parser.parse_args()
     args.run(args)
 

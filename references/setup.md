@@ -1,15 +1,14 @@
 # Setup and updates
 
-`<skill-dir>` is the folder that contains SKILL.md.
+`<skill-dir>` is the folder that contains SKILL.md. Run the script as `python3 <skill-dir>/scripts/sync.py`, or with `py -3` on Windows.
 
 ## Filling in config.json
 
-Use this section when `check` reports `config.json does not exist` or a `missing: <key>` line.
+Use this section when `check` reports `missing: <key>` lines. `check` has already created `config.json` from `config.example.json` and added every default.
 
-1. If `config.json` does not exist, copy `<skill-dir>/config.example.json` to `<skill-dir>/config.json`.
-2. Find each missing value yourself first, using the table.
-3. In one message, show the user what you found and ask only for what you could not find.
-4. Write the confirmed values into `config.json`, then run `check` again.
+1. Find each missing value yourself first, using the table.
+2. In one message, show the user what you found and ask only for what you could not find.
+3. Write the confirmed values into `<skill-dir>/config.json`, then run `check` again.
 
 `null` means "not used". It is allowed only where the table says so.
 
@@ -24,17 +23,26 @@ Use this section when `check` reports `config.json does not exist` or a `missing
 | `jira.issueKeyPattern` | `\b(<projectKey>)-\d+\b`. Add any other project keys the user's commits mention as alternatives inside the parentheses |
 | `jira.assigneeAccountId` | The user's account id from `atlassianUserInfo` |
 | `jira.sprintNamePrefix` | The common start of the user's team sprint names, chosen from the active sprints (the sprint query in SKILL.md step 3). `null` means use any active sprint |
-| `jira.fields.*` | Field ids from `getJiraIssueTypeMetaWithFields` for the Task type, matched by name: story points, sprint, Android version(s) affected, device type(s) affected. `null` when the project has no such field. `storyPoints` cannot be `null` |
+| `jira.fields.storyPoints` | The id of the story points field (named like "Story points" or "Story point estimate") from `getJiraIssueTypeMetaWithFields` for the Task type, with `requiredFieldsOnly: false` |
+| `jira.fields.sprint` | The id of the field named "Sprint", from the same call. `null` when the project has no sprints |
 
-`finalStatus`, `syncLabel`, `storyPoints`, `workHours` and the lookback days already have defaults. List them for the user in one line, so they can change them.
+Settings with defaults, which the user may want to change. List them in one line:
+
+- `finalStatus`: the status new tickets move to
+- `syncLabel`: the label added to every ticket
+- `storyPoints`: points range and hours per point
+- `workHours`: working days, hours and time zone
+- `firstRunLookbackDays` and `overlapDays`: how far back runs look
+- `logWork`: whether to log the estimated time on each ticket
+- `fieldDefaults`: the fallback value for each extra required field, by field id. Usually empty at first; filled in as the user answers questions about those fields
 
 ## Updating this skill
 
 Use this section when the user asks to update the skill, or agrees to an update that `check` reported.
 
-1. Run `python3 <skill-dir>/scripts/sync.py update`. It pulls the latest version with git and lists what changed. It does not touch `config.json` or the history in `state.json`.
-2. Tell the user what changed. If the update failed, show its message, which says what to do.
+1. Run `sync.py update`. It pulls the latest version with git and lists what changed. It does not touch `config.json` or the history in `state.json`.
+2. Tell the user what changed. If the update failed, show its message.
 3. Read SKILL.md again, because the steps may have changed.
-4. Run `check` again. Settings added by the new version show up as `missing:` lines.
+4. Run `check` again. It adds defaults for new settings, and lists new settings that need a value as `missing:` lines.
 
 If the user only asked to update, stop there.

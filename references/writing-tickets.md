@@ -46,6 +46,11 @@ Signals to weigh:
   - It is a rough upper bound on time spent.
   - Commits made in one batch show 0, which says nothing about effort.
 
+**Check the total.** `fetch` prints the working hours before these changes, and their SP equivalent. It is the sum of the per-change gaps, so it leaves out evenings and weekends. Keep the total SP of all tickets close to it.
+
+- If the total is clearly higher (for example, much of the work was done after hours) or clearly lower, keep it only when you can explain why in one line in the preview.
+- Otherwise, scale the estimates towards the working hours.
+
 ## Fields
 
 - **Issue type:** `Bug` if the work fixes broken behaviour, otherwise `Task`.
@@ -65,14 +70,31 @@ Signals to weigh:
   ```
 
   Keep the text above the `---` line free of jargon. If a technical term is unavoidable, explain it in plain words.
-- **Android versions affected** (only if `jira.fields.androidVersions` is set): infer them from branch and repo names.
-  - Examples: `15`, `16`, `android-15-dev`, `a15_release`. `11` or `R` means Android 11.
-  - If the change is on branches for several versions, use several values.
-  - If it is unclear, use the allowed option that covers all versions.
-- **Device types affected** (only if `jira.fields.deviceTypes` is set): pick an option only when branch or repo names point to exactly one allowed option. Otherwise use the allowed option that covers all devices.
+- **Extra required fields** (found in SKILL.md step 3): give each one a value for every ticket.
+  - **Fields with allowed values:** choose the value or values that fit the change, reading branch, repo and file names.
+    - For example, a version field can often be read from branch names like `15`, `android-15-dev` or `a15_release`, where `11` or `R` means version 11.
+    - A field that allows several values gets several when the change is on branches for several versions or products.
+    - Pick a specific option only when the names clearly point to it.
+  - **When nothing fits clearly, fall back in this order:**
+    1. The value stored for that field id in `jira.fieldDefaults`.
+    2. The allowed option that means "all", "common", "general" or "not applicable", if there is one.
+    3. Otherwise, ask the user once. Then save the answer in `jira.fieldDefaults` (keyed by field id, in the API shape below), so it is not asked again.
+  - **Fields without allowed values** (text, number, date): use `jira.fieldDefaults`, or ask the user once and save the answer the same way.
+  - **API shape:** shape each value by the field's `schema`.
+    - `array` of options: `[{"value": "..."}]`
+    - single option: `{"value": "..."}`
+    - `string`, `number` or `date`: the plain value
 - **Parent epic:** the open epic that best matches the app or area. If none fits, leave it empty.
 - **Labels:** `jira.syncLabel` plus one app label.
   - Reuse an existing label found in SKILL.md step 3 when one fits, keeping its casing (e.g. `PaymentsApp`, `Website`).
   - Otherwise use a short CamelCase app name.
 - **Assignee:** `jira.assigneeAccountId`.
 - **Sprint:** the sprint found in SKILL.md step 3.
+
+## Changes with secrets
+
+A change has `secrets` when its files look like they hold passwords, tokens or keys. The fetch file lists the file and the kind of secret, never the value.
+
+- Ticket the change like any other, but describe it in general terms, for example "Build settings are now included in the app".
+- Never put secret values, the contents of those files, or the words that reveal them into a ticket.
+- List the files in the preview's secrets block (SKILL.md step 5).

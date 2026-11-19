@@ -4,7 +4,9 @@
 
 **Turn your GitHub commits into clear, well-organized Jira tickets, with story points, in one command.**
 
+[![Tests](https://github.com/lordarcadius/jira-sync/actions/workflows/tests.yml/badge.svg)](https://github.com/lordarcadius/jira-sync/actions/workflows/tests.yml)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 ![Works with](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20Copilot-6E56CF)
 
 </div>
@@ -14,18 +16,19 @@
 You write code all week, and then someone asks for Jira tickets. **jira-sync** writes them for you:
 
 - It reads what you committed and groups the commits into pieces of work.
-- It writes a short, plain-English ticket for each piece of work and estimates its story points.
+- It writes a short, plain-English ticket for each piece and estimates its story points.
 - It shows you everything before it creates a single ticket.
 
 ## What it does
 
-- **Finds all your work.** It looks at every repository and every branch in your GitHub organization, not just `main`. It picks only your own commits.
+- **Finds all your work.** It looks at every repository and every branch in your GitHub organization, not just `main`, and picks only your own commits.
 - **Groups commits by task.** A feature and its five follow-up fixes become one ticket, not six. The same fix on two branches counts once.
 - **Writes tickets anyone can read.** Each ticket says what was done and why it matters, in plain English, with links to the commits.
 - **Estimates story points** from the human time the work likely took, not from lines of code.
-- **Fills in the details:** epic, sprint, labels, assignee and status, using what already exists in your Jira project.
+- **Fills in the details:** epic, sprint, labels, assignee, status, and any other field your Jira project requires.
 - **Asks before it acts.** You see a full preview and can change anything. Nothing is created until you say yes.
 - **Never creates a ticket twice.** Commits that already have a ticket, or already mention one, are skipped.
+- **Warns you about leaked secrets.** If a commit seems to add a password, token or key, the preview tells you which file it is, so you can change the secret. The secret itself never goes into a ticket.
 
 ## How it works
 
@@ -48,7 +51,7 @@ You type:
 You get a preview like this one (shortened):
 
 ```
-my-org · Nov 16 → Nov 18 · 23 commits → 5 tickets · 2.5 SP
+my-org · Nov 16 → Nov 18 · 23 commits → 5 tickets · 2.5 SP (working hours: ~24 h ≈ 2.7 SP)
 Sprint: Team Sprint 7
 
 1. [Task · 0.5 SP] Checkout remembers the customer's last payment method
@@ -72,7 +75,7 @@ To change the preview, reply in your own words, for example *"merge 2 and 3"*, *
 | You need | What it is for | How to get it |
 |---|---|---|
 | An AI agent that supports skills | Runs jira-sync | Claude Code, Codex, Antigravity, GitHub Copilot or similar |
-| Python 3.9 or newer | Runs the small helper script | [python.org](https://www.python.org/downloads/) |
+| Python 3.9 or newer | Runs the small helper script | [python.org](https://www.python.org/downloads/). On Windows, also run `py -m pip install tzdata` |
 | GitHub CLI (`gh`) | Reads your commits | [cli.github.com](https://cli.github.com), then run `gh auth login` |
 | Git | Installs and updates jira-sync | [git-scm.com](https://git-scm.com/downloads) |
 | A Jira connection in your agent | Creates the tickets | Add Atlassian's official MCP server (the connector that lets AI agents use Jira) in your agent's settings, then sign in |
@@ -82,14 +85,33 @@ To change the preview, reply in your own words, for example *"merge 2 and 3"*, *
 
 ## Install
 
-**1. Download it**
+Download jira-sync and connect it to every AI agent on your computer with two commands.
+
+**macOS and Linux**
 
 ```bash
 git clone https://github.com/lordarcadius/jira-sync.git ~/jira-sync
-cd ~/jira-sync
+python3 ~/jira-sync/install.py
 ```
 
-**2. Connect it to your agent.** Run the line for the agent you use. Each line creates a shortcut to this folder. If you use several agents, they all share the same copy and remember the same history.
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/lordarcadius/jira-sync.git $HOME\jira-sync
+py -3 $HOME\jira-sync\install.py
+```
+
+The installer finds Claude Code, Codex, Antigravity, GitHub Copilot and Gemini CLI, and adds a shortcut to jira-sync in each one's skills folder. All agents share the same copy, settings and history, so a commit ticketed in one agent is never proposed again in another. To undo it, run the installer again with `--remove`.
+
+Then start a new session in your agent and type `/jira-sync`. The first run sets itself up:
+
+- It finds your GitHub username, Jira site, account and project fields on its own.
+- It asks you only for what it can't find, such as which Jira project to use.
+
+<details>
+<summary>Prefer to add the shortcut by hand?</summary>
+
+Run the line for your agent from inside the `jira-sync` folder (macOS and Linux):
 
 | Agent | Command |
 |---|---|
@@ -99,12 +121,9 @@ cd ~/jira-sync
 | GitHub Copilot | `mkdir -p ~/.copilot/skills && ln -s "$PWD" ~/.copilot/skills/jira-sync` |
 | Gemini CLI | `mkdir -p ~/.gemini/skills && ln -s "$PWD" ~/.gemini/skills/jira-sync` |
 
-Older versions of Antigravity read `~/.gemini/antigravity/skills` instead. Use only one line per agent. Two shortcuts for the same agent make the skill show up twice.
+On Windows, use `New-Item -ItemType Junction -Path <skills folder>\jira-sync -Target $PWD` with the same folders under `$HOME`. Older versions of Antigravity read `~/.gemini/antigravity/skills` instead. Add only one shortcut per agent, or the skill shows up twice.
 
-**3. Run it once.** Start a new session in your agent and type `/jira-sync`. The first run sets itself up:
-
-- It finds your GitHub username, Jira site, account and project fields on its own.
-- It asks you only for what it can't find, such as which Jira project to use.
+</details>
 
 ## Using it
 
@@ -126,6 +145,7 @@ Most code today is written with an AI assistant, so the size of a change says li
 - Tickets range from **0.25 to 2 points**. Bigger work is split into separate tickets.
 - **Estimates go up** for tricky areas (system code, timing issues, install and update flows) and for work that needed many follow-up fixes.
 - **Estimates go down** for text, settings and documentation changes.
+- **The total stays realistic.** jira-sync compares the total with the working hours between your commits, and explains any big difference in the preview.
 
 Every estimate comes with a one-line reason, so you can adjust it before anything is created.
 
@@ -150,19 +170,23 @@ Your settings live in `config.json` in the jira-sync folder. The first run creat
 | `storyPoints.min` / `max` | `0.25` / `2` | Smallest and largest ticket |
 | `jira.finalStatus` | `Done` | The status new tickets are moved to |
 | `jira.syncLabel` | `commit-sync` | The label added to every ticket jira-sync creates |
+| `jira.logWork` | `false` | Set to `true` to also log the estimated time on each ticket |
+| `jira.fieldDefaults` | empty | Answers jira-sync remembers for extra fields your Jira project requires |
 | `firstRunLookbackDays` | `7` | How many days back the very first run looks |
 
 ## Your data stays yours
 
 - **Settings and history stay on your computer.** `config.json` holds your settings and `state.json` records which commits already have tickets. Both are listed in `.gitignore`, so they are never committed.
 - **It talks only to GitHub and Jira.** jira-sync reaches GitHub through your own `gh` login and Jira through your agent's connection. Your agent's AI model sees the commit details, as it does with any task.
+- **Secrets stay out of tickets and out of the chat.** jira-sync checks your commits for secrets on your own computer. When it finds one, it names only the file. It never shows the secret in the chat or puts it in a ticket.
 - **Nothing is created without your approval.** You approve the preview first.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `/jira-sync` doesn't show up | Start a new session in your agent, and check the shortcut from step 2 of Install |
+| `/jira-sync` doesn't show up | Start a new session in your agent, and run the installer again to check the shortcut |
+| "Another jira-sync run is still open" | Finish or cancel the other session. If it was closed without finishing, tell the agent it was abandoned and it will clear it |
 | Some repositories are missing | Run `gh auth refresh -s repo,read:org` |
 | Jira tools are not available | Connect Atlassian's MCP server in your agent's settings and sign in |
 
@@ -173,7 +197,13 @@ Your settings live in `config.json` in the jira-sync folder. The first run creat
 | `SKILL.md` | The main steps your agent follows |
 | `references/` | Extra instructions your agent reads only when needed: first-time setup, updates, and how to write tickets |
 | `scripts/sync.py` | The helper that reads commits from GitHub and remembers which ones already have tickets |
+| `install.py` | Connects jira-sync to your AI agents |
 | `config.example.json` | The template for your settings |
+| `tests/` | Automated tests, run on Linux, macOS and Windows for every change |
+
+## License
+
+[MIT](LICENSE). You can use, change and share jira-sync freely.
 
 ## Author
 

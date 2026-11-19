@@ -16,10 +16,10 @@
     "sprintNamePrefix": "",
     "fields": {
       "storyPoints": "",
-      "sprint": "",
-      "androidVersions": "",
-      "deviceTypes": ""
-    }
+      "sprint": ""
+    },
+    "fieldDefaults": {},
+    "logWork": false
   },
   "storyPoints": {
     "min": 0.25,

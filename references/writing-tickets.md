@@ -54,22 +54,22 @@ Signals to weigh:
 ## Fields
 
 - **Issue type:** `Bug` if the work fixes broken behaviour, otherwise `Task`.
-- **Summary:** the outcome in plain English, at most 80 characters, sentence case. No code, class or file names.
-- **Description:** markdown, short, in this shape:
+- **Summary:** at most 70 characters, written as "Writing style" below says. No code, class or file names.
+- **Description:** markdown, in this shape, written as "Writing style" below says:
 
   ```
   **What was done**
-  - 2–4 short bullets in plain language
+  - 1–4 bullets, one concrete change each
 
   **Why it matters**
-  - 1–2 bullets on the effect for users or the team
+  - one bullet, only when the reason is not already clear from the title and bullets
 
   ---
   Repo: <repo> · Branch: <branches>
   Commits: [abc1234](https://github.com/<owner>/<repo>/commit/<full sha>), ...
   ```
 
-  Keep the text above the `---` line free of jargon. If a technical term is unavoidable, explain it in plain words.
+  Leave out the "Why it matters" section when it would only restate the bullets.
 - **Extra required fields** (found in SKILL.md step 3): give each one a value for every ticket.
   - **Fields with allowed values:** choose the value or values that fit the change, reading branch, repo and file names.
     - For example, a version field can often be read from branch names like `15`, `android-15-dev` or `a15_release`, where `11` or `R` means version 11.
@@ -90,6 +90,57 @@ Signals to weigh:
   - Otherwise use a short CamelCase app name.
 - **Assignee:** `jira.assigneeAccountId`.
 - **Sprint:** the sprint found in SKILL.md step 3.
+
+## Writing style
+
+Write every ticket the way a teammate would in a minute: plain, specific and short. Someone who doesn't code should still understand what changed.
+
+**Titles**
+
+- **Start with a verb** that says what happened: Add, Fix, Show, Remove, Move, Let, Stop, Send.
+  - If the team's recent tickets (SKILL.md step 3) clearly follow another style, match it: length, wording, capitals.
+- **Name what users see:** the screen, button, report or message.
+- **One outcome per title.** No list titles such as "X: A, B and C". An area prefix such as "Checkout: …" is fine when the team writes titles that way. If the ticket covers several things, title the main one and let the bullets carry the rest.
+- **Format:** sentence case, no full stop, no quotes, no emoji.
+
+**Bullets**
+
+- **One fact per bullet,** in about 15 words or fewer. Say what changed, where, and for whom.
+- **Be specific:** "Search box on lists longer than 10 items" beats "Improved dropdown usability".
+- **Don't repeat the title** as the first bullet.
+- **Use the team's own names** for apps and features, without explaining them in brackets.
+- **Explain a technical term** in a few plain words only when someone who doesn't code would need it to follow the bullet.
+- **Small work gets fewer bullets.** A 0.25 SP fix usually needs one or two.
+
+**Cut anything that sounds generated**
+
+- **Words to avoid:**
+  - enhance, robust, seamless, streamline, leverage, comprehensive, ensure, utilize
+  - various, overall, significantly, effortlessly, intuitive, powerful
+  - user experience, functionality
+  - improve, unless you say how
+- **Tone and formatting:** no marketing tone, no exclamation marks, no em dashes, and no bold or emoji inside bullets.
+- **No vague benefits** such as "better experience" or "easier to use". Say the concrete effect, or drop it.
+- **No filler openers** such as "This ticket…" or "Implemented…" when a plain verb works.
+- **Last pass:** if a sentence could appear on any ticket, delete it.
+
+**Example**
+
+Instead of:
+
+```
+Checkout page: smarter payment selection, faster flow and improved UX
+- Implemented robust logic to seamlessly remember the user's preferred payment method
+- Why it matters: enhances the overall checkout experience
+```
+
+write:
+
+```
+Remember the last payment method at checkout
+- Checkout pre-selects the card or wallet the customer used last time
+- Customers can still pick another method with one tap
+```
 
 ## Changes with secrets
 

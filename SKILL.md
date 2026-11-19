@@ -95,6 +95,7 @@ Make these calls in parallel, all with `jira.cloudId`:
   - Pick the one with the latest `startDate`.
   - If none matches, tickets go to the backlog. Say so in the preview.
 - **Labels in use:** JQL `project = <projectKey> AND labels is not EMPTY AND created >= -90d ORDER BY created DESC`, fields `["labels"]`, `maxResults` 100.
+- **Team style:** JQL `project = <projectKey> AND (labels is EMPTY OR labels != <syncLabel>) ORDER BY created DESC`, fields `["summary"]`, `maxResults` 30. These are the team's other tickets, so new titles can match the style the team is used to.
 - **Already synced:** JQL `project = <projectKey> AND labels = <syncLabel> AND (text ~ "<sha>" OR text ~ "<sha>" …)` with the 7-character SHA of every commit in the fetch, up to 40 SHAs per query. Use fields `["summary","description"]` and `responseContentFormat` `markdown`.
   - For each ticket found, check that the SHA really appears in its description.
   - Then run `sync.py record --fetch <id> <KEY> <change id>` and leave that change out of the proposal.
@@ -106,6 +107,7 @@ Read `<skill-dir>/references/writing-tickets.md` and follow it. It covers:
 - grouping changes into tickets
 - story points, and the check of the total against the working hours from step 1
 - every ticket field, including the extra required fields
+- how to word titles and descriptions so they read as if a person wrote them
 - changes that contain secrets
 
 Every change id must end up in exactly one ticket or in the skipped list.
@@ -136,7 +138,7 @@ Possible secrets in commits:
 - c58 <file>: <kind>
 ```
 
-- Leave out the `Fields:` line when there are no extra required fields.
+- Leave out the `Fields:` line when there are no extra required fields, and "Why it matters" when the ticket has none.
 - Leave out the secrets block when no change has `secrets`. When there are some:
   - name only the file and the kind, never a value
   - suggest rotating those secrets and removing the files from git

@@ -23,7 +23,7 @@ You write code all week, and then someone asks for Jira tickets. **jira-sync** w
 
 - **Finds all your work.** It looks at every repository and every branch in your GitHub organization, not just `main`, and picks only your own commits.
 - **Groups commits by task.** A feature and its five follow-up fixes become one ticket, not six. The same fix on two branches counts once.
-- **Writes tickets anyone can read.** Each ticket says what was done and why it matters, in plain English, with links to the commits.
+- **Writes tickets that read like a person wrote them.** Short, specific titles and a few plain-English bullets, with links to the commits. No filler and no buzzwords, and the titles follow your team's style.
 - **Estimates story points** from the human time the work likely took, not from lines of code.
 - **Fills in the details:** epic, sprint, labels, assignee, status, and any other field your Jira project requires.
 - **Asks before it acts.** You see a full preview and can change anything. Nothing is created until you say yes.
@@ -54,17 +54,15 @@ You get a preview like this one (shortened):
 my-org · Nov 16 → Nov 18 · 23 commits → 5 tickets · 2.5 SP (working hours: ~24 h ≈ 2.7 SP)
 Sprint: Team Sprint 7
 
-1. [Task · 0.5 SP] Checkout remembers the customer's last payment method
+1. [Task · 0.5 SP] Remember the last payment method at checkout
    Epic: SHOP-120 Payments · Labels: commit-sync, PaymentsApp
    Commits (4): web-app c1 3f2a9c1, c2 8b7d044, c4 a1e9f30, c6 77c0b12
    Effort: ~4.5 h, new feature plus two follow-up fixes
    What was done
-   - The checkout page now pre-selects the payment method used last time
-   - Customers can still pick a different method with one tap
-   Why it matters
-   - Faster checkout for returning customers
+   - Checkout pre-selects the card or wallet the customer used last time
+   - Customers can still pick another method with one tap
 
-2. [Bug · 0.25 SP] Order emails no longer show the wrong delivery date
+2. [Bug · 0.25 SP] Fix wrong delivery date in order emails
    ...
 ```
 

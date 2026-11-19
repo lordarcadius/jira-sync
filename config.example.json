@@ -1,0 +1,38 @@
+{
+  "github": {
+    "defaultOrg": "",
+    "authorLogins": [],
+    "authorEmails": []
+  },
+  "jira": {
+    "cloudId": "",
+    "site": "",
+    "projectKey": "",
+    "taskIssueTypeId": "",
+    "issueKeyPattern": "",
+    "assigneeAccountId": "",
+    "finalStatus": "Done",
+    "syncLabel": "commit-sync",
+    "sprintNamePrefix": "",
+    "fields": {
+      "storyPoints": "",
+      "sprint": "",
+      "androidVersions": "",
+      "deviceTypes": ""
+    }
+  },
+  "storyPoints": {
+    "min": 0.25,
+    "max": 2,
+    "step": 0.25,
+    "hoursPerPoint": 9
+  },
+  "workHours": {
+    "timezone": "Asia/Kolkata",
+    "start": "10:00",
+    "end": "19:00",
+    "days": [0, 1, 2, 3, 4]
+  },
+  "firstRunLookbackDays": 7,
+  "overlapDays": 7
+}
